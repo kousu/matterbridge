@@ -137,6 +137,7 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 		Text:      msg.Username + msg.Text,
 		ID:        msgID,
 		ReplaceID: msgReplaceID,
+		ReplyTo:   msg.ParentID,
 	}); err != nil {
 		return "", err
 	}
