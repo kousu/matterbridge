@@ -65,7 +65,9 @@ func New(rootLogger *logrus.Logger, cfg *config.Gateway, r *Router) *Gateway {
 // FindCanonicalMsgID returns the ID under which a message was stored in the cache.
 func (gw *Gateway) FindCanonicalMsgID(protocol string, mID string) string {
 	ID := protocol + " " + mID
+	gw.logger.Debugf("FindCanonicalMsgID: looking for ID=%s in cache (cache has %d entries)", ID, gw.Messages.Len())
 	if gw.Messages.Contains(ID) {
+		gw.logger.Debugf("FindCanonicalMsgID: found ID=%s directly in cache", ID)
 		return ID
 	}
 
@@ -75,10 +77,12 @@ func (gw *Gateway) FindCanonicalMsgID(protocol string, mID string) string {
 		ids := v.([]*BrMsgID)
 		for _, downstreamMsgObj := range ids {
 			if ID == downstreamMsgObj.ID {
+				gw.logger.Debugf("FindCanonicalMsgID: found ID=%s as downstream of canonical=%s", ID, mid.(string))
 				return mid.(string)
 			}
 		}
 	}
+	gw.logger.Debugf("FindCanonicalMsgID: ID=%s not found in cache", ID)
 	return ""
 }
 
@@ -259,15 +263,23 @@ func (gw *Gateway) getDestChannel(msg *config.Message, dest bridge.Bridge) []con
 }
 
 func (gw *Gateway) getDestMsgID(msgID string, dest *bridge.Bridge, channel *config.ChannelInfo) string {
+	gw.logger.Debugf("getDestMsgID: looking for msgID=%s, dest.Protocol=%s, dest.Name=%s, channel.ID=%s", msgID, dest.Protocol, dest.Name, channel.ID)
 	if res, ok := gw.Messages.Get(msgID); ok {
 		IDs := res.([]*BrMsgID)
+		gw.logger.Debugf("getDestMsgID: found %d cached destination IDs for msgID=%s", len(IDs), msgID)
 		for _, id := range IDs {
+			gw.logger.Debugf("getDestMsgID: checking cached entry: br.Protocol=%s, br.Name=%s, ChannelID=%s, ID=%s", id.br.Protocol, id.br.Name, id.ChannelID, id.ID)
 			// check protocol, bridge name and channelname
 			// for people that reuse the same bridge multiple times. see #342
 			if dest.Protocol == id.br.Protocol && dest.Name == id.br.Name && channel.ID == id.ChannelID {
-				return strings.Replace(id.ID, dest.Protocol+" ", "", 1)
+				result := strings.Replace(id.ID, dest.Protocol+" ", "", 1)
+				gw.logger.Debugf("getDestMsgID: match found, returning %s", result)
+				return result
 			}
 		}
+		gw.logger.Debugf("getDestMsgID: no matching entry found in cached IDs")
+	} else {
+		gw.logger.Debugf("getDestMsgID: msgID=%s not found in cache", msgID)
 	}
 	return ""
 }
@@ -474,16 +486,21 @@ func (gw *Gateway) SendMessage(
 		msg.Channel = rmsg.Channel
 	}
 
+	gw.logger.Debugf("SendMessage: rmsg.ParentID=%s, canonicalParentMsgID=%s", rmsg.ParentID, canonicalParentMsgID)
 	msg.ParentID = gw.getDestMsgID(canonicalParentMsgID, dest, channel)
+	gw.logger.Debugf("SendMessage: after getDestMsgID, msg.ParentID=%s", msg.ParentID)
 	if msg.ParentID == "" {
 		msg.ParentID = strings.Replace(canonicalParentMsgID, dest.Protocol+" ", "", 1)
+		gw.logger.Debugf("SendMessage: after fallback strip, msg.ParentID=%s", msg.ParentID)
 	}
 
 	// if the parentID is still empty and we have a parentID set in the original message
 	// this means that we didn't find it in the cache so set it to a "msg-parent-not-found" constant
 	if msg.ParentID == "" && rmsg.ParentID != "" {
+		gw.logger.Debugf("SendMessage: parent not found in cache, setting to ParentIDNotFound")
 		msg.ParentID = config.ParentIDNotFound
 	}
+	gw.logger.Debugf("SendMessage: final msg.ParentID=%s", msg.ParentID)
 
 	drop, err := gw.modifyOutMessageTengo(rmsg, &msg, dest)
 	if err != nil {

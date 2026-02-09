@@ -155,7 +155,8 @@ func (r *Router) handleReceive() {
 			}
 
 			if msg.ID != "" {
-				_, exists := gw.Messages.Get(msg.Protocol + " " + msg.ID)
+				cacheKey := msg.Protocol + " " + msg.ID
+				_, exists := gw.Messages.Get(cacheKey)
 
 				// Only add the message ID if it doesn't already exist
 				//
@@ -163,8 +164,17 @@ func (r *Router) handleReceive() {
 				// This is necessary as msgIDs will change if a bridge returns
 				// a different ID in response to edits.
 				if !exists {
-					gw.Messages.Add(msg.Protocol+" "+msg.ID, msgIDs)
+					gw.logger.Debugf("Messages.Add: caching key=%s with %d destination IDs", cacheKey, len(msgIDs))
+					for i, brMsgID := range msgIDs {
+						gw.logger.Debugf("Messages.Add:   [%d] br.Protocol=%s, br.Name=%s, ChannelID=%s, ID=%s", i, brMsgID.br.Protocol, brMsgID.br.Name, brMsgID.ChannelID, brMsgID.ID)
+					}
+					gw.Messages.Add(cacheKey, msgIDs)
+					gw.logger.Debugf("Messages.Add: cache now has %d entries", gw.Messages.Len())
+				} else {
+					gw.logger.Debugf("Messages.Add: key=%s already exists, not re-adding", cacheKey)
 				}
+			} else {
+				gw.logger.Debugf("Messages.Add: msg.ID is empty, not caching")
 			}
 		}
 	}
