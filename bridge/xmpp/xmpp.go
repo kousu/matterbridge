@@ -130,6 +130,14 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 	if msg.ID != "" {
 		msgReplaceID = msg.ID
 	}
+
+	// XEP-0461: populate reply fields if this message is a reply.
+	var replyID, replyTo string
+	if msg.ParentValid() {
+		replyID = msg.ParentID
+		replyTo = msg.Channel + "@" + b.GetString("Muc") + "/" + b.GetString("Nick")
+	}
+
 	b.Log.Debugf("=> Sending message %#v", msg)
 	if _, err := b.xc.Send(xmpp.Chat{
 		Type:      "groupchat",
@@ -137,7 +145,8 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 		Text:      msg.Username + msg.Text,
 		ID:        msgID,
 		ReplaceID: msgReplaceID,
-		ReplyTo:   msg.ParentID,
+		ReplyID:   replyID,
+		ReplyTo:   replyTo,
 	}); err != nil {
 		return "", err
 	}
