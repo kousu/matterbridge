@@ -14,10 +14,10 @@ import (
 	"github.com/42wim/matterbridge/bridge"
 	"github.com/42wim/matterbridge/bridge/config"
 	"github.com/42wim/matterbridge/bridge/helper"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/jpillora/backoff"
 	"github.com/matterbridge/go-xmpp"
 	"github.com/rs/xid"
-	lru "github.com/hashicorp/golang-lru"
 )
 
 type Bxmpp struct {
@@ -35,8 +35,8 @@ type Bxmpp struct {
 }
 
 func New(cfg *bridge.Config) bridge.Bridger {
-  newCache, err := lru.New(5000)
-  if err != nil {
+	newCache, err := lru.New(5000)
+	if err != nil {
 		cfg.Log.Fatalf("Could not create LRU cache: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 	var replyID, replyTo string
 	if msg.ParentValid() {
 		if stanzaID, ok := b.cache.Get(msg.ParentID); ok {
-		  replyID = stanzaID.(string)
+			replyID = stanzaID.(string)
 		}
 		replyTo = msg.Channel + "@" + b.GetString("Muc") + "/" + b.GetString("Nick")
 	}
@@ -317,7 +317,7 @@ func (b *Bxmpp) handleXMPP() error {
 			if v.Type == "groupchat" {
 				b.Log.Debugf("== Receiving %#v", v)
 
-			  if v.StanzaID != "" {
+				if v.StanzaID != "" {
 					b.cache.Add(v.ID, v.StanzaID)
 				}
 
