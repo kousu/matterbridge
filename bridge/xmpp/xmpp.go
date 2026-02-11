@@ -14,6 +14,7 @@ import (
 	"github.com/42wim/matterbridge/bridge"
 	"github.com/42wim/matterbridge/bridge/config"
 	"github.com/42wim/matterbridge/bridge/helper"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/jpillora/backoff"
 	"github.com/matterbridge/go-xmpp"
 	"github.com/rs/xid"
@@ -26,6 +27,7 @@ type Bxmpp struct {
 	xc        *xmpp.Client
 	xmppMap   map[string]string
 	connected bool
+	cache     *lru.Cache
 	sync.RWMutex
 
 	avatarAvailability map[string]bool
@@ -33,11 +35,17 @@ type Bxmpp struct {
 }
 
 func New(cfg *bridge.Config) bridge.Bridger {
+	newCache, err := lru.New(5000)
+	if err != nil {
+		cfg.Log.Fatalf("Could not create LRU cache: %v", err)
+	}
+
 	return &Bxmpp{
 		Config:             cfg,
 		xmppMap:            make(map[string]string),
 		avatarAvailability: make(map[string]bool),
 		avatarMap:          make(map[string]string),
+		cache:              newCache,
 	}
 }
 
@@ -130,6 +138,16 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 	if msg.ID != "" {
 		msgReplaceID = msg.ID
 	}
+
+	// XEP-0461: populate reply fields if this message is a reply.
+	var replyID, replyTo string
+	if msg.ParentValid() {
+		if stanzaID, ok := b.cache.Get(msg.ParentID); ok {
+			replyID = stanzaID.(string)
+		}
+		replyTo = msg.Channel + "@" + b.GetString("Muc") + "/" + b.GetString("Nick")
+	}
+
 	b.Log.Debugf("=> Sending message %#v", msg)
 	if _, err := b.xc.Send(xmpp.Chat{
 		Type:      "groupchat",
@@ -137,6 +155,8 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 		Text:      msg.Username + msg.Text,
 		ID:        msgID,
 		ReplaceID: msgReplaceID,
+		ReplyID:   replyID,
+		ReplyTo:   replyTo,
 	}); err != nil {
 		return "", err
 	}
@@ -296,6 +316,10 @@ func (b *Bxmpp) handleXMPP() error {
 		case xmpp.Chat:
 			if v.Type == "groupchat" {
 				b.Log.Debugf("== Receiving %#v", v)
+
+				if v.StanzaID != "" {
+					b.cache.Add(v.ID, v.StanzaID)
+				}
 
 				// Skip invalid messages.
 				if b.skipMessage(v) {
