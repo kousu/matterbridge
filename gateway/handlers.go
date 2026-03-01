@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/matterbridge-org/matterbridge/bridge"
 	"github.com/matterbridge-org/matterbridge/bridge/config"
@@ -151,30 +152,29 @@ func (gw *Gateway) ignoreEvent(event string, dest *bridge.Bridge) bool {
 
 // handleMessage makes sure the message get sent to the correct bridge/channels.
 // Returns an array of msg ID's
-func (gw *Gateway) handleMessage(rmsg *config.Message, dest *bridge.Bridge) []*BrMsgID {
-	var brMsgIDs []*BrMsgID
+func (gw *Gateway) handleMessage(rmsg *config.Message, dest *bridge.Bridge, IDs chan string) {
 
 	// Not all bridges support "user is typing" indications so skip the message
 	// if the targeted bridge does not support it.
 	if rmsg.Event == config.EventUserTyping {
 		if _, ok := bridgemap.UserTypingSupport[dest.Protocol]; !ok {
-			return nil
+			return
 		}
 	}
 
 	// if we have an attached file, or other info
 	if rmsg.Extra != nil && len(rmsg.Extra[config.EventFileFailureSize]) != 0 && rmsg.Text == "" {
-		return brMsgIDs
+		return
 	}
 
 	if gw.ignoreEvent(rmsg.Event, dest) {
-		return brMsgIDs
+		return
 	}
 
 	// broadcast to every out channel (irc QUIT)
 	if rmsg.Channel == "" && rmsg.Event != config.EventJoinLeave {
 		gw.logger.Debug("empty channel")
-		return brMsgIDs
+		return
 	}
 
 	// Get the ID of the parent message in thread
@@ -183,13 +183,25 @@ func (gw *Gateway) handleMessage(rmsg *config.Message, dest *bridge.Bridge) []*B
 		canonicalParentMsgID = gw.FindCanonicalMsgID(rmsg.Protocol, rmsg.ParentID)
 	}
 
+	// scatter, but no gather; gathering is done into BrMsgIDs
+	var wg sync.WaitGroup
 	channels := gw.getDestChannel(rmsg, *dest)
 	for idx := range channels {
 		channel := &channels[idx]
-		gw.SendMessage(rmsg, dest, channel, canonicalParentMsgID)
-		// brMsgIDs = append(brMsgIDs, &BrMsgID{dest, dest.Protocol + " " + msgID, channel.ID})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mID, err := gw.SendMessage(rmsg, dest, channel, canonicalParentMsgID)
+			if err != nil {
+				gw.logger.Errorf("Failed to send message: %s", err)
+				return
+			}
+
+			// record successful message sending
+			IDs <- mID
+		}()
 	}
-	return brMsgIDs
+	wg.Wait()
 }
 
 func (gw *Gateway) handleExtractNicks(msg *config.Message) {

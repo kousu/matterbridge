@@ -155,19 +155,19 @@ func (gw *Gateway) SendMessage(
 	dest *bridge.Bridge,
 	channel *config.ChannelInfo,
 	canonicalParentMsgID *xid.ID,
-) {
+) (string, error) {
 	msg := *rmsg
 	if msg.Event == config.EventAvatarDownload && channel.ID != getChannelID(rmsg) {
 		// Only send the avatar download event to ourselves.
-		return
+		return "", nil
 	} else if channel.ID == getChannelID(rmsg) {
 		// do not send to ourself for any other event
-		return
+		return "", nil
 	}
 
 	// Only send irc notices to irc
 	if msg.Event == config.EventNoticeIRC && dest.Protocol != "irc" {
-		return
+		return "", nil
 	}
 
 	// for api we need originchannel as channel
@@ -204,7 +204,7 @@ func (gw *Gateway) SendMessage(
 
 	if drop {
 		gw.logger.Debugf("=> Tengo dropping %#v from %s (%s) to %s (%s)", msg, msg.Account, rmsg.Channel, dest.Account, channel.Name)
-		return
+		return "", nil
 	}
 
 	// Too noisy to log like other events
@@ -219,13 +219,22 @@ func (gw *Gateway) SendMessage(
 		gw.Router.MattermostPlugin <- msg
 	}
 
-	// Send the message in the background
-	go func() {
-		t := time.Now()
-		// TODO: remove this when the interface removes the return type
-		_, _ = dest.Send(msg)
-		gw.logger.Debugf("=> Send from %s (%s) to %s (%s) took %s", msg.Account, rmsg.Channel, dest.Account, channel.Name, time.Since(t))
-	}()
+	defer func(t time.Time) {
+	       gw.logger.Debugf("=> Send from %s (%s) to %s (%s) took %s", msg.Account, rmsg.Channel, dest.Account, channel.Name, time.Since(t))
+	}(time.Now())
+
+	mID, err := dest.Send(msg)
+	if err != nil {
+	       return mID, err
+	}
+
+	// append the message ID (mID) from this bridge (dest) to our brMsgIDs slice
+	if mID != "" {
+	       gw.logger.Debugf("mID %s: %s", dest.Account, mID)
+	       return mID, nil
+	       // brMsgIDs = append(brMsgIDs, &BrMsgID{dest, dest.Protocol + " " + mID, channel.ID})
+	}
+	return "", nil
 }
 
 // checkConfig checks a bridge config, on startup.

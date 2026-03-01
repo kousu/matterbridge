@@ -173,8 +173,28 @@ func (r *Router) handleReceive() {
 			// Even if it might be empty, already initialize the mapping
 			gw.Messages.Add(msg.InternalID, BrMsgIDs)
 
+			// scatter
+			results := make(chan string)
+			var wg sync.WaitGroup
 			for _, br := range gw.Bridges {
-				gw.handleMessage(&msg, br)
+				wg.Add(1)
+				go func(br *bridge.Bridge) {
+					defer wg.Done()
+					gw.handleMessage(&msg, br, results)
+				}(br)
+			}
+
+			go func() {
+				wg.Wait()
+				close(results)
+			}()
+
+			// gather
+			// we record the associated message IDs on all the other bridges
+			for brID := range results {
+				BrMsgIDs, _ := gw.Messages.Get(msg.InternalID)
+				BrMsgIDs = append(BrMsgIDs, &BrMsgID{msgBridge, brID, msg.Channel})
+				gw.Messages.Add(msg.InternalID, BrMsgIDs)
 			}
 		}
 	}
