@@ -26,11 +26,6 @@ type Bxmpp struct {
 
 	avatarAvailability map[string]bool
 	avatarMap          map[string]string
-
-	// Mapping of sent origin-id to internal matterbridge ID of source msg
-	// An internal ID may correspond to several XMPP origin-id because
-	// of split message (eg. multiple file upload)
-	messageMap map[string]xid.ID
 }
 
 func New(cfg *bridge.Config) bridge.Bridger {
@@ -39,7 +34,6 @@ func New(cfg *bridge.Config) bridge.Bridger {
 		xmppMap:            make(map[string]string),
 		avatarAvailability: make(map[string]bool),
 		avatarMap:          make(map[string]string),
-		messageMap:         make(map[string]xid.ID),
 	}
 }
 
@@ -102,7 +96,6 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 			b.Log.Debugf("=> Sending attachement message %#v", rmsg)
 
 			originId := xid.New().String()
-			b.messageMap[originId] = msg.InternalID
 
 			_, err = b.xc.Send(xmpp.Chat{
 				Type:     "groupchat",
@@ -122,7 +115,6 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 	}
 
 	originId := xid.New().String()
-	b.messageMap[originId] = msg.InternalID
 
 	// Post normal message.
 	b.Log.Debugf("=> Sending message %#v", msg)
@@ -136,7 +128,7 @@ func (b *Bxmpp) Send(msg config.Message) (string, error) {
 		return "", err
 	}
 
-	return "", nil
+	return originId, nil
 }
 
 func (b *Bxmpp) createXMPP() error {
@@ -354,7 +346,6 @@ func (b *Bxmpp) handleUploadFile(msg *config.Message) error {
 		}
 
 		originId := xid.New().String()
-		b.messageMap[originId] = msg.InternalID
 
 		if _, err := b.xc.Send(xmpp.Chat{
 			Type:     "groupchat",
@@ -367,7 +358,6 @@ func (b *Bxmpp) handleUploadFile(msg *config.Message) error {
 
 		originId = xid.New().String()
 
-		b.messageMap[originId] = msg.InternalID
 		if fileInfo.URL != "" {
 			if _, err := b.xc.SendOOB(xmpp.Chat{
 				Type:     "groupchat",
@@ -406,12 +396,6 @@ func (b *Bxmpp) parseChannel(remote string) string {
 func (b *Bxmpp) skipMessage(message xmpp.Chat) bool {
 	// skip messages from ourselves
 	if b.parseNick(message.Remote) == b.GetString("Nick") {
-		// We received our own message, we will further ignore it,
-		// but first send back the ID it was assigned.
-		if message.OriginID != "" {
-			internal := b.messageMap[message.OriginID]
-			b.AckSentMessage(internal, message.OriginID, b.parseChannel(message.Remote))
-		}
 		return true
 	}
 

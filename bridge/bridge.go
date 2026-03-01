@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/matterbridge-org/matterbridge/bridge/config"
-	"github.com/rs/xid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -24,7 +23,6 @@ type Bridger interface {
 	Disconnect() error
 	NewHttpRequest(method, uri string, body io.Reader) (*http.Request, error)
 	NewHttpClient(proxy string) (*http.Client, error)
-	AckSentMessage(internal xid.ID, external string, channel string)
 }
 
 type Bridge struct {
@@ -46,17 +44,7 @@ type Bridge struct {
 type Config struct {
 	*Bridge
 
-	Remote         chan config.Message
-	MessageSentAck chan MessageSent
-}
-
-// MessageSent is an acknowledgement received from a remote
-// network that a message has been successfully sent, along
-// with a protocol-dependent unique ID.
-type MessageSent struct {
-	DestBridge *Bridge
-	InternalID xid.ID
-	ExternalID config.MessageSentID
+	Remote chan config.Message
 }
 
 // Factory is the factory function to create a bridge
@@ -415,17 +403,4 @@ func (b *Bridge) addAttachmentProcess(msg *config.Message, filename string, id s
 	})
 
 	return nil
-}
-
-func (b *Config) AckSentMessage(internal xid.ID, external string, channel string) {
-	go func() {
-		b.MessageSentAck <- MessageSent{
-			DestBridge: b.Bridge,
-			InternalID: internal,
-			ExternalID: config.MessageSentID{
-				ChannelID: channel,
-				ID:        external,
-			},
-		}
-	}()
 }

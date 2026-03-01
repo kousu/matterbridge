@@ -141,7 +141,7 @@ func (r *Router) handleReceive() {
 		// We add an internal UUID which will allow destination protocols
 		// to send back their own ID(s) corresponding to the message go the
 		// gateway in an asynchronous manner (for replies/reactions).
-		msg.InternalID = xid.New()
+		InternalID := xid.New()
 
 		r.handleEventGetChannelMembers(&msg)
 		r.handleEventFailure(&msg)
@@ -171,7 +171,7 @@ func (r *Router) handleReceive() {
 				BrMsgIDs = append(BrMsgIDs, &BrMsgID{msgBridge, msg.ID, msg.Channel})
 			}
 			// Even if it might be empty, already initialize the mapping
-			gw.Messages.Add(msg.InternalID, BrMsgIDs)
+			gw.Messages.Add(InternalID, BrMsgIDs)
 
 			// scatter
 			results := make(chan string)
@@ -192,9 +192,9 @@ func (r *Router) handleReceive() {
 			// gather
 			// we record the associated message IDs on all the other bridges
 			for brID := range results {
-				BrMsgIDs, _ := gw.Messages.Get(msg.InternalID)
+				BrMsgIDs, _ := gw.Messages.Get(InternalID)
 				BrMsgIDs = append(BrMsgIDs, &BrMsgID{msgBridge, brID, msg.Channel})
-				gw.Messages.Add(msg.InternalID, BrMsgIDs)
+				gw.Messages.Add(InternalID, BrMsgIDs)
 			}
 		}
 	}

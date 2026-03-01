@@ -69,8 +69,8 @@ func (gw *Gateway) FindCanonicalMsgID(protocol string, externalID string) *xid.I
 		// TODO: should we check if the mapping exists here? or is this method
 		// only used when we're 100% sure?
 		externalIDs, _ := gw.Messages.Peek(internalID)
-		for _, downstreamMsgObj := range externalIDs {
-			if externalID == downstreamMsgObj.ID {
+		for _, brMsgId := range externalIDs {
+			if brMsgId.br.Protocol == protocol && brMsgId.ID == externalID {
 				return &internalID
 			}
 		}
@@ -99,43 +99,9 @@ func (gw *Gateway) AddBridge(cfg *config.Bridge) error {
 
 		br.HttpClient = http_client
 
-		// The channel to receive message IDs is shared with the
-		// bridges, but is not kept in the gateway.
-		messageAck := make(chan bridge.MessageSent, 100)
-		// Start listening for sent message acknowledgements
-		go func() {
-			for ack := range messageAck {
-				gw.logger.Warnf("Message %s has been acked by %s as ID: %s", ack.InternalID.String(), ack.DestBridge.Protocol, ack.ExternalID.ID)
-				// TODO 2026: this was a comment in the previous ID handling. Not
-				// sure what to do about ID changing on edit????
-				//
-				// Only add the message ID if it doesn't already exist
-				//
-				// For some bridges we always add/update the message ID.
-				// This is necessary as msgIDs will change if a bridge returns
-				// a different ID in response to edits.
-
-				// brMsgIDs is always initialized in Router.handleReceive(). However,
-				// we may still receive a message we don't know about. Maybe matterbridge
-				// was restarted, or another client is connected on the same account sending
-				// messages, or the remote server is melting down and dinosaurs are walking
-				// the Earth...
-				brMsgIDs, exists := gw.Messages.Get(ack.InternalID)
-
-				if !exists {
-					gw.logger.Warnf("Unknown message %s has been acked by %s as ID: %s", ack.InternalID.String(), ack.DestBridge.Protocol, ack.ExternalID.ID)
-					continue
-				}
-
-				brMsgIDs = append(brMsgIDs, &BrMsgID{ack.DestBridge, ack.DestBridge.Protocol + " " + ack.ExternalID.ID, ack.ExternalID.ChannelID})
-				gw.Messages.Add(ack.InternalID, brMsgIDs)
-			}
-		}()
-
 		brconfig := &bridge.Config{
-			Remote:         gw.Message,
-			MessageSentAck: messageAck,
-			Bridge:         br,
+			Remote: gw.Message,
+			Bridge: br,
 		}
 		// add the actual bridger for this protocol to this bridge using the bridgeMap
 		if _, ok := gw.Router.BridgeMap[br.Protocol]; !ok {
@@ -220,19 +186,19 @@ func (gw *Gateway) SendMessage(
 	}
 
 	defer func(t time.Time) {
-	       gw.logger.Debugf("=> Send from %s (%s) to %s (%s) took %s", msg.Account, rmsg.Channel, dest.Account, channel.Name, time.Since(t))
+		gw.logger.Debugf("=> Send from %s (%s) to %s (%s) took %s", msg.Account, rmsg.Channel, dest.Account, channel.Name, time.Since(t))
 	}(time.Now())
 
 	mID, err := dest.Send(msg)
 	if err != nil {
-	       return mID, err
+		return mID, err
 	}
 
 	// append the message ID (mID) from this bridge (dest) to our brMsgIDs slice
 	if mID != "" {
-	       gw.logger.Debugf("mID %s: %s", dest.Account, mID)
-	       return mID, nil
-	       // brMsgIDs = append(brMsgIDs, &BrMsgID{dest, dest.Protocol + " " + mID, channel.ID})
+		gw.logger.Debugf("mID %s: %s", dest.Account, mID)
+		return mID, nil
+		// brMsgIDs = append(brMsgIDs, &BrMsgID{dest, dest.Protocol + " " + mID, channel.ID})
 	}
 	return "", nil
 }
