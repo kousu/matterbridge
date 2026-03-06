@@ -325,8 +325,10 @@ func (b *Bxmpp) handleXMPP() error {
 				if v.StanzaID.ID != "" {
 					// Here the stanza-id has been set by the server and can be used to provide replies
 					// as explained in XEP-0461 https://xmpp.org/extensions/xep-0461.html#business-id
-					b.stanzaIDs.Add(v.StanzaID.ID, v.ID)
-					b.replyHeaders.Add(v.ID, xmpp.Reply{ID: v.StanzaID.ID, To: v.Remote})
+					b.stanzaIDs.Add(v.StanzaID.ID, v.OriginID)
+					r := xmpp.Reply{ID: v.StanzaID.ID, To: v.Remote}
+					b.replyHeaders.Add(v.OriginID, r)
+					b.Log.Debugf("Caching StanzaID: %v -> %v -> %v", v.StanzaID.ID, v.OriginID, r)
 				}
 
 				// Skip invalid messages.
